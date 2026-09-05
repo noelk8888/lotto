@@ -60,8 +60,8 @@ const months: Record<string, string> = {
   nov: '11',
   dec: '12',
 };
-const MAX_SCAN_UPLOAD_BYTES = 3.5 * 1024 * 1024;
-const MAX_SCAN_IMAGE_EDGE = 1800;
+const MAX_SCAN_UPLOAD_BYTES = 3.8 * 1024 * 1024;
+const MAX_SCAN_IMAGE_EDGE = 3000;
 
 async function optimizeTicketPhoto(file: File) {
   // Phone camera photos are frequently 5–15 MB. Resize them in the browser
@@ -77,20 +77,26 @@ async function optimizeTicketPhoto(file: File) {
       source.onerror = () => reject(new Error('This photo format could not be prepared for scanning. Please choose a JPEG or PNG photo.'));
       source.src = sourceUrl;
     });
-    const scale = Math.min(
-      1,
-      MAX_SCAN_IMAGE_EDGE / Math.max(image.naturalWidth, image.naturalHeight),
-    );
     const canvas = document.createElement('canvas');
-    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
-    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
     const context = canvas.getContext('2d');
     if (!context) throw new Error('Your browser could not prepare this ticket photo.');
-    context.drawImage(image, 0, 0, canvas.width, canvas.height);
-
-    const compressed = await new Promise<Blob | null>((resolve) =>
-      canvas.toBlob(resolve, 'image/jpeg', 0.88),
-    );
+    const makeJpeg = async (edge: number, quality: number) => {
+      const scale = Math.min(
+        1,
+        edge / Math.max(image.naturalWidth, image.naturalHeight),
+      );
+      canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+      context.drawImage(image, 0, 0, canvas.width, canvas.height);
+      return new Promise<Blob | null>((resolve) =>
+        canvas.toBlob(resolve, 'image/jpeg', quality),
+      );
+    };
+    let compressed = await makeJpeg(MAX_SCAN_IMAGE_EDGE, 0.92);
+    if (compressed && compressed.size > MAX_SCAN_UPLOAD_BYTES)
+      compressed = await makeJpeg(MAX_SCAN_IMAGE_EDGE, 0.82);
+    if (compressed && compressed.size > MAX_SCAN_UPLOAD_BYTES)
+      compressed = await makeJpeg(2600, 0.84);
     if (!compressed)
       throw new Error('Your browser could not prepare this ticket photo.');
     if (compressed.size > MAX_SCAN_UPLOAD_BYTES)
