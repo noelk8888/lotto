@@ -61,19 +61,29 @@ const months: Record<string, string> = {
   dec: '12',
 };
 const validEntry = /^\s*([A-E])\s*[:.-]\s*((?:\d{1,2}\s+){5}\d{1,2})\s*$/i;
-const ticketEntries = (value: string) =>
-  value
+const ticketEntries = (value: string) => {
+  const entries = value
     .split('\n')
     .map((line) => line.trim())
     .filter((line) => validEntry.test(line))
     .slice(0, 5);
-function scanTicket(read: string) {
+  const isSequential = entries.every(
+    (entry, index) =>
+      entry[0] === String.fromCharCode('A'.charCodeAt(0) + index),
+  );
+  return isSequential ? entries : [];
+};
+function scanTicket(read: string, inferSequentialLabels = false) {
   const compact = read.toUpperCase().replace(/[^A-Z0-9]/g, '');
   const detectedGame =
     gamePatterns.find(([pattern]) => compact.includes(pattern))?.[1] ?? '';
-  const draw = read.match(
-    /DRAW[\s\S]{0,80}?(\d{1,2})\s*[-/]\s*([A-Z]{3})\s*[-/]\s*(\d{2,4})/i,
-  );
+  const draw =
+    read.match(
+      /DRAW[^\n]{0,80}?(\d{1,2})\s*[-/]\s*([A-Z]{3})\s*[-/]\s*(\d{2,4})/i,
+    ) ??
+    read.match(
+      /(?:MON|TUE|WED|THU|FRI|SAT|SUN)[^\n]{0,24}?(\d{1,2})\s*[-/]\s*([A-Z]{3})\s*[-/]\s*(\d{2,4})/i,
+    );
   const date = draw
     ? `${draw[3].length === 2 ? `20${draw[3]}` : draw[3]}-${months[draw[2].toLowerCase()] ?? ''}-${draw[1].padStart(2, '0')}`
     : '';
@@ -98,6 +108,28 @@ function scanTicket(read: string) {
           .join(' ')}`,
       );
   }
+  if (inferSequentialLabels) {
+    const likelyRows = read
+      .split('\n')
+      .map((line) =>
+        (line.match(/\d{1,2}/g) ?? [])
+          .map(Number)
+          .filter((value) => value >= 1 && value <= 58),
+      )
+      .filter((values) => values.length >= 6 && values.length <= 7)
+      .slice(0, 5);
+    likelyRows.forEach((values, index) => {
+      const label = String.fromCharCode('A'.charCodeAt(0) + index);
+      if (!found.has(label))
+        found.set(
+          label,
+          `${label}: ${values
+            .slice(0, 6)
+            .map((value) => String(value).padStart(2, '0'))
+            .join(' ')}`,
+        );
+    });
+  }
   const entries = [...found.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .slice(0, 5)
@@ -121,7 +153,7 @@ function ticketQuality(ticket: ReturnType<typeof scanTicket>) {
     Number(Boolean(ticket.date))
   );
 }
-async function enhanceForOcr(file: File) {
+async function prepareNumberPanelForOcr(file: File) {
   const sourceUrl = URL.createObjectURL(file);
   try {
     const image = await new Promise<HTMLImageElement>((resolve, reject) => {
@@ -131,15 +163,31 @@ async function enhanceForOcr(file: File) {
         reject(new Error('The image could not be prepared.'));
       loaded.src = sourceUrl;
     });
-    const longestSide = Math.max(image.naturalWidth, image.naturalHeight);
-    const scale = Math.min(2, Math.max(1, 2200 / longestSide));
+    const crop = {
+      x: Math.round(image.naturalWidth * 0.04),
+      y: Math.round(image.naturalHeight * 0.2),
+      width: Math.round(image.naturalWidth * 0.92),
+      height: Math.round(image.naturalHeight * 0.4),
+    };
+    const longestSide = Math.max(crop.width, crop.height);
+    const scale = Math.min(2.5, Math.max(1, 2200 / longestSide));
     const canvas = document.createElement('canvas');
-    canvas.width = Math.round(image.naturalWidth * scale);
-    canvas.height = Math.round(image.naturalHeight * scale);
+    canvas.width = Math.round(crop.width * scale);
+    canvas.height = Math.round(crop.height * scale);
     const context = canvas.getContext('2d');
     if (!context) throw new Error('The image could not be prepared.');
-    context.filter = 'grayscale(1) contrast(1.35)';
-    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    context.filter = 'grayscale(1) contrast(1.5)';
+    context.drawImage(
+      image,
+      crop.x,
+      crop.y,
+      crop.width,
+      crop.height,
+      0,
+      0,
+      canvas.width,
+      canvas.height,
+    );
     return await new Promise<Blob>((resolve, reject) =>
       canvas.toBlob(
         (blob) =>
@@ -282,13 +330,19 @@ export default function Home() {
       let ticket = scanTicket(raw.data.text.replace(/\r/g, ''));
       if (needsMobileOcrRetry(ticket.entries)) {
         try {
-          const enhancedImage = await enhanceForOcr(file);
-          const enhanced = await Tesseract.recognize(enhancedImage, 'eng');
+          const numberPanel = await prepareNumberPanelForOcr(file);
+          const enhanced = await Tesseract.recognize(numberPanel, 'eng');
           const enhancedTicket = scanTicket(
             enhanced.data.text.replace(/\r/g, ''),
+            true,
           );
           if (ticketQuality(enhancedTicket) > ticketQuality(ticket))
-            ticket = enhancedTicket;
+            ticket = {
+              ...ticket,
+              entries: enhancedTicket.entries,
+              detectedGame: ticket.detectedGame || enhancedTicket.detectedGame,
+              date: ticket.date || enhancedTicket.date,
+            };
         } catch {
           // Keep the original OCR result if this browser cannot enhance images.
         }
