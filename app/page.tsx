@@ -69,12 +69,14 @@ const hasSixUniqueTicketNumbers = (line: string) => {
     new Set(values).size === 6
   );
 };
-const ticketEntries = (value: string) => {
-  const entries = value
+const individuallyValidTicketEntries = (value: string) =>
+  value
     .split('\n')
     .map((line) => line.trim())
     .filter((line) => validEntry.test(line) && hasSixUniqueTicketNumbers(line))
     .slice(0, 5);
+const ticketEntries = (value: string) => {
+  const entries = individuallyValidTicketEntries(value);
   const isSequential = entries.every(
     (entry, index) =>
       entry[0] === String.fromCharCode('A'.charCodeAt(0) + index),
@@ -220,7 +222,7 @@ function prizeTier(game: string, matched: number, total: number) {
 export default function Home() {
   const input = useRef<HTMLInputElement>(null);
   const [image, setImage] = useState<string | null>(null);
-  const [game, setGame] = useState('Ultra Lotto 6/58');
+  const [game, setGame] = useState('');
   const [date, setDate] = useState('');
   const [lines, setLines] = useState('');
   const [loading, setLoading] = useState(false);
@@ -230,7 +232,33 @@ export default function Home() {
   const [checkedGame, setCheckedGame] = useState('');
   const [expectedEntryCount, setExpectedEntryCount] = useState(0);
   const [error, setError] = useState('');
+  const [manualLabel, setManualLabel] = useState('');
+  const [manualNumbers, setManualNumbers] = useState('');
   const ticketLines = useMemo(() => ticketEntries(lines), [lines]);
+  const individuallyValidEntries = useMemo(
+    () => individuallyValidTicketEntries(lines),
+    [lines],
+  );
+  const requiredLabels = useMemo(
+    () =>
+      Array.from({ length: expectedEntryCount }, (_, index) =>
+        String.fromCharCode('A'.charCodeAt(0) + index),
+      ),
+    [expectedEntryCount],
+  );
+  const missingLabels = useMemo(
+    () =>
+      requiredLabels.filter(
+        (label) =>
+          !individuallyValidEntries.some((entry) =>
+            entry.startsWith(`${label}:`),
+          ),
+      ),
+    [individuallyValidEntries, requiredLabels],
+  );
+  const selectedManualLabel = missingLabels.includes(manualLabel)
+    ? manualLabel
+    : (missingLabels[0] ?? '');
   useEffect(() => {
     const context = (
       document as Document & {
@@ -303,6 +331,7 @@ export default function Home() {
   ) {
     const entries = ticketEntries(ticket.lines);
     if (
+      !ticket.game ||
       !ticket.date ||
       entries.length < 1 ||
       (ticket.expectedEntryCount > 0 &&
@@ -311,7 +340,7 @@ export default function Home() {
       throw new Error(
         ticket.expectedEntryCount > 0
           ? `I found ${entries.length} of ${ticket.expectedEntryCount} ticket entries. Please scan again or complete the missing line.`
-          : 'Add a draw date and at least one complete labelled entry before checking.',
+          : 'Add a lotto game, draw date, and at least one complete labelled entry before checking.',
       );
     setLoading(true);
     setError('');
@@ -332,11 +361,54 @@ export default function Home() {
       setLoading(false);
     }
   }
+  function addManualEntry() {
+    const picked = numbers(manualNumbers);
+    const maximum = Number(game.match(/6\/(\d+)/)?.[1] ?? 58);
+    if (
+      !selectedManualLabel ||
+      picked.length !== 6 ||
+      picked.some((value) => value < 1 || value > maximum) ||
+      new Set(picked).size !== 6
+    ) {
+      setError(
+        `Enter six different numbers from 1 to ${maximum} for the missing set.`,
+      );
+      return;
+    }
+    const entry = `${selectedManualLabel}: ${picked
+      .map((value) => String(value).padStart(2, '0'))
+      .join(' ')}`;
+    const updated = [
+      ...individuallyValidEntries.filter(
+        (line) => !line.startsWith(`${selectedManualLabel}:`),
+      ),
+      entry,
+    ]
+      .sort((left, right) => left.localeCompare(right))
+      .join('\n');
+    setLines(updated);
+    setManualLabel('');
+    setManualNumbers('');
+    setResult(null);
+    setError('');
+  }
+  function clearTicketDetails() {
+    setGame('');
+    setDate('');
+    setLines('');
+    setExpectedEntryCount(0);
+    setManualLabel('');
+    setManualNumbers('');
+    setResult(null);
+    setCheckedLines([]);
+    setCheckedGame('');
+    setError('');
+  }
   async function chooseImage(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
+    clearTicketDetails();
     setImage(URL.createObjectURL(file));
-    setExpectedEntryCount(0);
     setScanning(true);
     try {
       const { default: Tesseract } = await import('tesseract.js');
@@ -480,6 +552,7 @@ export default function Home() {
                   <button
                     onClick={() => {
                       setImage(null);
+                      clearTicketDetails();
                       if (input.current) input.current.value = '';
                     }}
                     className="mt-2 flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-slate-900"
@@ -496,6 +569,7 @@ export default function Home() {
                     onChange={(e) => setGame(e.target.value)}
                     className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm font-medium outline-none focus:border-sky-600"
                   >
+                    <option value="">Select lotto game</option>
                     {games.map((item) => (
                       <option key={item}>{item}</option>
                     ))}
@@ -524,8 +598,55 @@ export default function Home() {
                   If the app did not automatically check for results, use the
                   button to do it manually.
                 </p>
+                {missingLabels.length > 0 && (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+                    <p className="text-sm font-bold text-amber-950">
+                      Add a missing set manually
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-amber-900/80">
+                      Missing: {missingLabels.join(', ')}. Enter the six numbers
+                      exactly as printed on the ticket.
+                    </p>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-[5rem_1fr]">
+                      <label className="text-xs font-bold text-slate-700">
+                        Set
+                        <select
+                          value={selectedManualLabel}
+                          onChange={(event) =>
+                            setManualLabel(event.target.value)
+                          }
+                          className="mt-1 w-full rounded-lg border border-amber-200 bg-white px-2 py-2 text-sm font-semibold outline-none focus:border-sky-600"
+                        >
+                          {missingLabels.map((label) => (
+                            <option key={label}>{label}</option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="text-xs font-bold text-slate-700">
+                        Six numbers
+                        <input
+                          value={manualNumbers}
+                          onChange={(event) =>
+                            setManualNumbers(event.target.value)
+                          }
+                          inputMode="numeric"
+                          placeholder="e.g. 01 08 10 18 27 32"
+                          className="mt-1 w-full rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm outline-none focus:border-sky-600"
+                        />
+                      </label>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={addManualEntry}
+                      className="mt-3 rounded-lg bg-amber-200 px-3 py-2 text-xs font-black text-amber-950 transition hover:bg-amber-300"
+                    >
+                      Add {selectedManualLabel} set
+                    </button>
+                  </div>
+                )}
                 <button
                   disabled={
+                    !game ||
                     !date ||
                     ticketLines.length < 1 ||
                     ticketLines.length > 5 ||
