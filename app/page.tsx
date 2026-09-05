@@ -377,8 +377,8 @@ export default function Home() {
                   />
                 </label>
                 <p className="text-xs text-slate-500">
-                  After a complete scan, the result is checked automatically.
-                  Use this button only after correcting detected details.
+                  If the app did not automatically check for results, use the
+                  button to do it manually.
                 </p>
                 <button
                   disabled={
@@ -397,7 +397,7 @@ export default function Home() {
                     </>
                   ) : (
                     <>
-                      Check corrected entries <ChevronRight size={18} />
+                      CHECK RESULTS MANUALLY <ChevronRight size={18} />
                     </>
                   )}
                 </button>
