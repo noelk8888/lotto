@@ -17,7 +17,13 @@ function scanTicket(read: string) {
   const detectedGame = gamePatterns.find(([pattern]) => compact.includes(pattern))?.[1] ?? '';
   const draw = read.match(/DRAW[\s\S]{0,80}?(\d{1,2})\s*[-/]\s*([A-Z]{3})\s*[-/]\s*(\d{2,4})/i);
   const date = draw ? `${draw[3].length === 2 ? `20${draw[3]}` : draw[3]}-${months[draw[2].toLowerCase()] ?? ''}-${draw[1].padStart(2, '0')}` : '';
-  const entries = [...read.matchAll(/(?:^|\n|\s)([A-D])\s*[:.]?\s*((?:\d{1,2}\s+){5}\d{1,2})/gim)].map((match) => `${match[1].toUpperCase()}: ${match[2].replace(/\s+/g, ' ')}`).filter((entry, index, all) => all.indexOf(entry) === index).slice(0, 4);
+  const found = new Map<string, string>();
+  for (const line of read.split('\n')) {
+    const label = line.match(/^\s*['|]?\s*([A-D])\s*[:.)]?/i)?.[1]?.toUpperCase();
+    const values = line.match(/\d{1,2}/g) ?? [];
+    if (label && values.length >= 6 && !found.has(label)) found.set(label, `${label}: ${values.slice(0, 6).map((value) => value.padStart(2, '0')).join(' ')}`);
+  }
+  const entries = ['A', 'B', 'C', 'D'].map((label) => found.get(label)).filter((entry): entry is string => Boolean(entry));
   return { detectedGame, date, entries: entries.join('\n') };
 }
 function prizeTier(game: string, matched: number, total: number) {
@@ -41,7 +47,7 @@ export default function Home() {
   async function chooseImage(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]; if (!file) return; setImage(URL.createObjectURL(file)); setScanning(true);
     try {
-      const { recognize } = await import('tesseract.js'); const { data } = await recognize(file, 'eng'); const ticket = scanTicket(data.text.replace(/\r/g, ''));
+      const { default: Tesseract } = await import('tesseract.js'); const { data } = await Tesseract.recognize(file, 'eng'); const ticket = scanTicket(data.text.replace(/\r/g, ''));
       if (ticket.detectedGame) setGame(ticket.detectedGame); if (ticket.date) setDate(ticket.date); if (ticket.entries) setLines(ticket.entries);
       if (!ticket.detectedGame || !ticket.date || ticket.entries.split('\n').length !== 4) throw new Error('I read part of the ticket, but not all four A–D entries. The detected details are kept below—complete only the missing entry, then check again.');
       await checkTicket({ game: ticket.detectedGame, date: ticket.date, lines: ticket.entries });
