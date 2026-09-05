@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   ChevronRight,
   ExternalLink,
+  RefreshCw,
   RotateCcw,
   ScanLine,
   Ticket,
@@ -446,7 +447,7 @@ export default function Home() {
     <main className="min-h-screen bg-[#071a2b] text-slate-950">
       <div className="mesh" />
       <div className="relative mx-auto max-w-6xl px-4 pb-12 pt-5 sm:px-7 sm:pt-8">
-        <header className="mb-7 flex items-center justify-between text-white">
+        <header className="mb-7 flex items-center justify-between gap-3 text-white">
           <div className="flex items-center gap-3">
             <span className="grid h-10 w-10 place-items-center rounded-2xl bg-[#f7c843] text-[#07243a]">
               <Ticket size={22} />
@@ -458,14 +459,25 @@ export default function Home() {
               <p className="text-xs text-sky-100/70">PCSO ticket checker</p>
             </div>
           </div>
-          <a
-            href="https://www.pcso.gov.ph/searchlottoresult.aspx"
-            target="_blank"
-            rel="noreferrer"
-            className="hidden items-center gap-1 rounded-full border border-white/20 px-3 py-2 text-xs font-semibold text-white sm:flex"
-          >
-            PCSO results <ExternalLink size={13} />
-          </a>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className="flex items-center gap-1.5 rounded-full border border-white/30 bg-white/10 px-3 py-2 text-xs font-bold text-white transition hover:bg-white/20"
+              aria-label="Refresh PH-Lotto-Checker"
+            >
+              <RefreshCw size={14} />
+              Refresh
+            </button>
+            <a
+              href="https://www.pcso.gov.ph/searchlottoresult.aspx"
+              target="_blank"
+              rel="noreferrer"
+              className="hidden items-center gap-1 rounded-full border border-white/20 px-3 py-2 text-xs font-semibold text-white sm:flex"
+            >
+              PCSO results <ExternalLink size={13} />
+            </a>
+          </div>
         </header>
         <section className="grid gap-5 lg:grid-cols-[1.08fr_.92fr]">
           <div className="overflow-hidden rounded-[2rem] bg-white shadow-2xl shadow-black/20">
