@@ -8,7 +8,6 @@ import {
   ExternalLink,
   RotateCcw,
   ScanLine,
-  ShieldCheck,
   Ticket,
   Trophy,
   XCircle,
@@ -291,19 +290,6 @@ export default function Home() {
         </header>
         <section className="grid gap-5 lg:grid-cols-[1.08fr_.92fr]">
           <div className="overflow-hidden rounded-[2rem] bg-white shadow-2xl shadow-black/20">
-            <div className="border-b border-slate-100 px-5 py-5 sm:px-7">
-              <p className="text-xs font-bold uppercase tracking-[.18em] text-sky-700">
-                One ticket at a time
-              </p>
-              <h2 className="mt-1 text-2xl font-black tracking-tight text-[#08243b]">
-                Point, scan, see the result
-              </h2>
-              <p className="mt-1 text-sm leading-6 text-slate-500">
-                Take a clear photo. PH-Lotto-Checker reads the game, draw date,
-                and up to five labelled number lines, then checks the official
-                result automatically.
-              </p>
-            </div>
             <div className="grid gap-5 p-5 sm:p-7 md:grid-cols-2">
               <div>
                 <input
@@ -357,11 +343,6 @@ export default function Home() {
                     <RotateCcw size={13} /> Scan another ticket
                   </button>
                 )}
-                <p className="mt-4 rounded-2xl bg-amber-50 px-3 py-3 text-xs leading-5 text-amber-900">
-                  <ShieldCheck className="mr-1 inline h-4 w-4" />
-                  One to five complete entries are accepted: A: through E:, each
-                  followed by six numbers.
-                </p>
               </div>
               <div className="space-y-4">
                 <label className="block text-sm font-bold text-slate-700">
