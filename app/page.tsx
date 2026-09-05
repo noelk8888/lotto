@@ -80,10 +80,16 @@ function scanTicket(read: string) {
     : '';
   const found = new Map<string, string>();
   for (const line of read.split('\n')) {
-    const label = line
-      .match(/^\s*['|]?\s*([A-E])\s*[:.)]?/i)?.[1]
-      ?.toUpperCase();
-    const values = line.match(/\d{1,2}/g) ?? [];
+    // Some ticket photos cause OCR to add a stray character before the first
+    // label (for example, "2/A-05..."). Read numbers only after A–E so that
+    // artifact does not replace the first selected number.
+    const labelMatch = line.match(/(?:^|[^A-Z])([A-E])\s*[:.)/-]/i);
+    const label = labelMatch?.[1]?.toUpperCase();
+    const values = labelMatch
+      ? (line
+          .slice((labelMatch.index ?? 0) + labelMatch[0].length)
+          .match(/\d{1,2}/g) ?? [])
+      : [];
     if (label && values.length >= 6 && !found.has(label))
       found.set(
         label,
@@ -353,8 +359,8 @@ export default function Home() {
                 )}
                 <p className="mt-4 rounded-2xl bg-amber-50 px-3 py-3 text-xs leading-5 text-amber-900">
                   <ShieldCheck className="mr-1 inline h-4 w-4" />
-                  One to five complete entries are accepted: A: through E:,
-                  each followed by six numbers.
+                  One to five complete entries are accepted: A: through E:, each
+                  followed by six numbers.
                 </p>
               </div>
               <div className="space-y-4">
