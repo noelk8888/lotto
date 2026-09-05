@@ -139,74 +139,6 @@ function scanTicket(read: string) {
     expectedEntryCount,
   };
 }
-function needsMobileOcrRetry(entries: string, expectedEntryCount: number) {
-  const labels = ticketEntries(entries).map((entry) => entry[0]);
-  return (
-    labels.length === 0 ||
-    (expectedEntryCount > 0 && labels.length !== expectedEntryCount) ||
-    labels[0] !== 'A' ||
-    labels.some(
-      (label, index) => label.charCodeAt(0) !== 'A'.charCodeAt(0) + index,
-    )
-  );
-}
-function ticketQuality(ticket: ReturnType<typeof scanTicket>) {
-  return (
-    ticketEntries(ticket.entries).length * 4 +
-    Number(Boolean(ticket.detectedGame)) +
-    Number(Boolean(ticket.date)) +
-    Number(Boolean(ticket.expectedEntryCount))
-  );
-}
-async function prepareNumberPanelForOcr(file: File) {
-  const sourceUrl = URL.createObjectURL(file);
-  try {
-    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const loaded = new Image();
-      loaded.onload = () => resolve(loaded);
-      loaded.onerror = () =>
-        reject(new Error('The image could not be prepared.'));
-      loaded.src = sourceUrl;
-    });
-    const crop = {
-      x: Math.round(image.naturalWidth * 0.04),
-      y: Math.round(image.naturalHeight * 0.2),
-      width: Math.round(image.naturalWidth * 0.92),
-      height: Math.round(image.naturalHeight * 0.4),
-    };
-    const longestSide = Math.max(crop.width, crop.height);
-    const scale = Math.min(2.5, Math.max(1, 2200 / longestSide));
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.round(crop.width * scale);
-    canvas.height = Math.round(crop.height * scale);
-    const context = canvas.getContext('2d');
-    if (!context) throw new Error('The image could not be prepared.');
-    context.filter = 'grayscale(1) contrast(1.5)';
-    context.drawImage(
-      image,
-      crop.x,
-      crop.y,
-      crop.width,
-      crop.height,
-      0,
-      0,
-      canvas.width,
-      canvas.height,
-    );
-    return await new Promise<Blob>((resolve, reject) =>
-      canvas.toBlob(
-        (blob) =>
-          blob
-            ? resolve(blob)
-            : reject(new Error('The image could not be prepared.')),
-        'image/jpeg',
-        0.95,
-      ),
-    );
-  } finally {
-    URL.revokeObjectURL(sourceUrl);
-  }
-}
 function prizeTier(game: string, matched: number, total: number) {
   if (matched === total) return 'Jackpot winner';
   if (game.includes('6/') || game === '6D Lotto') {
@@ -411,29 +343,13 @@ export default function Home() {
     setImage(URL.createObjectURL(file));
     setScanning(true);
     try {
-      const { default: Tesseract } = await import('tesseract.js');
-      const raw = await Tesseract.recognize(file, 'eng');
-      let ticket = scanTicket(raw.data.text.replace(/\r/g, ''));
-      if (needsMobileOcrRetry(ticket.entries, ticket.expectedEntryCount)) {
-        try {
-          const numberPanel = await prepareNumberPanelForOcr(file);
-          const enhanced = await Tesseract.recognize(numberPanel, 'eng');
-          const enhancedTicket = scanTicket(
-            enhanced.data.text.replace(/\r/g, ''),
-          );
-          if (ticketQuality(enhancedTicket) > ticketQuality(ticket))
-            ticket = {
-              ...ticket,
-              entries: enhancedTicket.entries,
-              detectedGame: ticket.detectedGame || enhancedTicket.detectedGame,
-              date: ticket.date || enhancedTicket.date,
-              expectedEntryCount:
-                ticket.expectedEntryCount || enhancedTicket.expectedEntryCount,
-            };
-        } catch {
-          // Keep the original OCR result if this browser cannot enhance images.
-        }
-      }
+      const form = new FormData();
+      form.append('image', file);
+      const response = await fetch('/api/ocr', { method: 'POST', body: form });
+      const data = (await response.json()) as { text?: string; error?: string };
+      if (!response.ok || !data.text)
+        throw new Error(data.error || 'The ticket could not be read.');
+      const ticket = scanTicket(data.text.replace(/\r/g, ''));
       if (ticket.detectedGame) setGame(ticket.detectedGame);
       if (ticket.date) setDate(ticket.date);
       if (ticket.entries) setLines(ticket.entries);
@@ -536,6 +452,10 @@ export default function Home() {
                       </span>
                       <span className="mt-1 text-xs text-slate-500">
                         Use your camera or upload a photo
+                      </span>
+                      <span className="mt-1 text-xs text-slate-500">
+                        Ticket photos are sent to Google Cloud Vision for
+                        scanning.
                       </span>
                     </>
                   )}
