@@ -104,6 +104,56 @@ function scanTicket(read: string) {
     .map(([, entry]) => entry);
   return { detectedGame, date, entries: entries.join('\n') };
 }
+function needsMobileOcrRetry(entries: string) {
+  const labels = ticketEntries(entries).map((entry) => entry[0]);
+  return (
+    labels.length === 0 ||
+    labels[0] !== 'A' ||
+    labels.some(
+      (label, index) => label.charCodeAt(0) !== 'A'.charCodeAt(0) + index,
+    )
+  );
+}
+function ticketQuality(ticket: ReturnType<typeof scanTicket>) {
+  return (
+    ticketEntries(ticket.entries).length * 4 +
+    Number(Boolean(ticket.detectedGame)) +
+    Number(Boolean(ticket.date))
+  );
+}
+async function enhanceForOcr(file: File) {
+  const sourceUrl = URL.createObjectURL(file);
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const loaded = new Image();
+      loaded.onload = () => resolve(loaded);
+      loaded.onerror = () =>
+        reject(new Error('The image could not be prepared.'));
+      loaded.src = sourceUrl;
+    });
+    const longestSide = Math.max(image.naturalWidth, image.naturalHeight);
+    const scale = Math.min(2, Math.max(1, 2200 / longestSide));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(image.naturalWidth * scale);
+    canvas.height = Math.round(image.naturalHeight * scale);
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('The image could not be prepared.');
+    context.filter = 'grayscale(1) contrast(1.35)';
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    return await new Promise<Blob>((resolve, reject) =>
+      canvas.toBlob(
+        (blob) =>
+          blob
+            ? resolve(blob)
+            : reject(new Error('The image could not be prepared.')),
+        'image/jpeg',
+        0.95,
+      ),
+    );
+  } finally {
+    URL.revokeObjectURL(sourceUrl);
+  }
+}
 function prizeTier(game: string, matched: number, total: number) {
   if (matched === total) return 'Jackpot winner';
   if (game.includes('6/') || game === '6D Lotto') {
@@ -228,8 +278,21 @@ export default function Home() {
     setScanning(true);
     try {
       const { default: Tesseract } = await import('tesseract.js');
-      const { data } = await Tesseract.recognize(file, 'eng');
-      const ticket = scanTicket(data.text.replace(/\r/g, ''));
+      const raw = await Tesseract.recognize(file, 'eng');
+      let ticket = scanTicket(raw.data.text.replace(/\r/g, ''));
+      if (needsMobileOcrRetry(ticket.entries)) {
+        try {
+          const enhancedImage = await enhanceForOcr(file);
+          const enhanced = await Tesseract.recognize(enhancedImage, 'eng');
+          const enhancedTicket = scanTicket(
+            enhanced.data.text.replace(/\r/g, ''),
+          );
+          if (ticketQuality(enhancedTicket) > ticketQuality(ticket))
+            ticket = enhancedTicket;
+        } catch {
+          // Keep the original OCR result if this browser cannot enhance images.
+        }
+      }
       if (ticket.detectedGame) setGame(ticket.detectedGame);
       if (ticket.date) setDate(ticket.date);
       if (ticket.entries) setLines(ticket.entries);
