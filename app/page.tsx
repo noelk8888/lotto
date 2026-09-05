@@ -73,6 +73,15 @@ const ticketEntries = (value: string) => {
   );
   return isSequential ? entries : [];
 };
+function expectedEntryCountFromPrice(read: string) {
+  const amounts = [
+    ...read.matchAll(/TICKET\s*PRICE[\s\S]{0,80}?([1-9]\d{1,2})\D{0,4}0{2}/gi),
+    ...read.matchAll(/[P₱]\s*([1-9]\d{1,2})\D{0,4}0{2}/gi),
+  ]
+    .map((match) => Number(match[1]))
+    .filter((amount) => amount >= 25 && amount <= 125 && amount % 25 === 0);
+  return amounts[0] ? amounts[0] / 25 : 0;
+}
 function scanTicket(read: string, inferSequentialLabels = false) {
   const compact = read.toUpperCase().replace(/[^A-Z0-9]/g, '');
   const detectedGame =
@@ -87,6 +96,7 @@ function scanTicket(read: string, inferSequentialLabels = false) {
   const date = draw
     ? `${draw[3].length === 2 ? `20${draw[3]}` : draw[3]}-${months[draw[2].toLowerCase()] ?? ''}-${draw[1].padStart(2, '0')}`
     : '';
+  const expectedEntryCount = expectedEntryCountFromPrice(read);
   const found = new Map<string, string>();
   for (const line of read.split('\n')) {
     // Some ticket photos cause OCR to add a stray character before the first
@@ -134,12 +144,18 @@ function scanTicket(read: string, inferSequentialLabels = false) {
     .sort(([a], [b]) => a.localeCompare(b))
     .slice(0, 5)
     .map(([, entry]) => entry);
-  return { detectedGame, date, entries: entries.join('\n') };
+  return {
+    detectedGame,
+    date,
+    entries: entries.join('\n'),
+    expectedEntryCount,
+  };
 }
-function needsMobileOcrRetry(entries: string) {
+function needsMobileOcrRetry(entries: string, expectedEntryCount: number) {
   const labels = ticketEntries(entries).map((entry) => entry[0]);
   return (
     labels.length === 0 ||
+    (expectedEntryCount > 0 && labels.length !== expectedEntryCount) ||
     labels[0] !== 'A' ||
     labels.some(
       (label, index) => label.charCodeAt(0) !== 'A'.charCodeAt(0) + index,
@@ -150,7 +166,8 @@ function ticketQuality(ticket: ReturnType<typeof scanTicket>) {
   return (
     ticketEntries(ticket.entries).length * 4 +
     Number(Boolean(ticket.detectedGame)) +
-    Number(Boolean(ticket.date))
+    Number(Boolean(ticket.date)) +
+    Number(Boolean(ticket.expectedEntryCount))
   );
 }
 async function prepareNumberPanelForOcr(file: File) {
@@ -225,6 +242,7 @@ export default function Home() {
   const [result, setResult] = useState<CheckResult | null>(null);
   const [checkedLines, setCheckedLines] = useState<string[]>([]);
   const [checkedGame, setCheckedGame] = useState('');
+  const [expectedEntryCount, setExpectedEntryCount] = useState(0);
   const [error, setError] = useState('');
   const ticketLines = useMemo(() => ticketEntries(lines), [lines]);
   useEffect(() => {
@@ -294,11 +312,20 @@ export default function Home() {
     ).catch(() => undefined);
     return () => lifecycle.abort();
   }, []);
-  async function checkTicket(ticket = { game, date, lines }) {
+  async function checkTicket(
+    ticket = { game, date, lines, expectedEntryCount },
+  ) {
     const entries = ticketEntries(ticket.lines);
-    if (!ticket.date || entries.length < 1)
+    if (
+      !ticket.date ||
+      entries.length < 1 ||
+      (ticket.expectedEntryCount > 0 &&
+        entries.length !== ticket.expectedEntryCount)
+    )
       throw new Error(
-        'Add a draw date and at least one complete labelled entry before checking.',
+        ticket.expectedEntryCount > 0
+          ? `I found ${entries.length} of ${ticket.expectedEntryCount} ticket entries. Please scan again or complete the missing line.`
+          : 'Add a draw date and at least one complete labelled entry before checking.',
       );
     setLoading(true);
     setError('');
@@ -323,12 +350,13 @@ export default function Home() {
     const file = event.target.files?.[0];
     if (!file) return;
     setImage(URL.createObjectURL(file));
+    setExpectedEntryCount(0);
     setScanning(true);
     try {
       const { default: Tesseract } = await import('tesseract.js');
       const raw = await Tesseract.recognize(file, 'eng');
       let ticket = scanTicket(raw.data.text.replace(/\r/g, ''));
-      if (needsMobileOcrRetry(ticket.entries)) {
+      if (needsMobileOcrRetry(ticket.entries, ticket.expectedEntryCount)) {
         try {
           const numberPanel = await prepareNumberPanelForOcr(file);
           const enhanced = await Tesseract.recognize(numberPanel, 'eng');
@@ -342,6 +370,8 @@ export default function Home() {
               entries: enhancedTicket.entries,
               detectedGame: ticket.detectedGame || enhancedTicket.detectedGame,
               date: ticket.date || enhancedTicket.date,
+              expectedEntryCount:
+                ticket.expectedEntryCount || enhancedTicket.expectedEntryCount,
             };
         } catch {
           // Keep the original OCR result if this browser cannot enhance images.
@@ -350,15 +380,26 @@ export default function Home() {
       if (ticket.detectedGame) setGame(ticket.detectedGame);
       if (ticket.date) setDate(ticket.date);
       if (ticket.entries) setLines(ticket.entries);
+      if (ticket.expectedEntryCount)
+        setExpectedEntryCount(ticket.expectedEntryCount);
       const entries = ticketEntries(ticket.entries);
-      if (!ticket.detectedGame || !ticket.date || entries.length < 1)
+      if (
+        !ticket.detectedGame ||
+        !ticket.date ||
+        entries.length < 1 ||
+        (ticket.expectedEntryCount > 0 &&
+          entries.length !== ticket.expectedEntryCount)
+      )
         throw new Error(
-          'I read part of the ticket. The detected details are kept below—complete any missing labelled number line, then check again.',
+          ticket.expectedEntryCount > 0
+            ? `I found ${entries.length} of ${ticket.expectedEntryCount} ticket entries. The detected details are kept below—scan again or complete the missing line.`
+            : 'I read part of the ticket. The detected details are kept below—complete any missing labelled number line, then check again.',
         );
       await checkTicket({
         game: ticket.detectedGame,
         date: ticket.date,
         lines: ticket.entries,
+        expectedEntryCount: ticket.expectedEntryCount,
       });
     } catch (scanError) {
       setError(
@@ -502,6 +543,8 @@ export default function Home() {
                     !date ||
                     ticketLines.length < 1 ||
                     ticketLines.length > 5 ||
+                    (expectedEntryCount > 0 &&
+                      ticketLines.length !== expectedEntryCount) ||
                     loading
                   }
                   onClick={() => checkTicket()}
