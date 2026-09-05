@@ -5,6 +5,50 @@ export const runtime = 'nodejs';
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 const GOOGLE_VISION_URL = 'https://vision.googleapis.com/v1/images:annotate';
 
+type Vertex = { x?: number; y?: number };
+type VisionWord = {
+  symbols?: Array<{ text?: string }>;
+  boundingBox?: { vertices?: Vertex[] };
+};
+
+function spatialTicketText(words: VisionWord[] | undefined) {
+  const positioned = (words ?? [])
+    .map((word) => {
+      const text = word.symbols?.map((symbol) => symbol.text ?? '').join('');
+      const vertices = word.boundingBox?.vertices ?? [];
+      const xs = vertices.map((vertex) => vertex.x ?? 0);
+      const ys = vertices.map((vertex) => vertex.y ?? 0);
+      return {
+        text,
+        x: xs.length ? Math.min(...xs) : 0,
+        y: ys.length ? Math.min(...ys) : 0,
+        height: ys.length ? Math.max(...ys) - Math.min(...ys) : 0,
+      };
+    })
+    .filter((word) => word.text && word.height > 0)
+    .sort((a, b) => a.y - b.y || a.x - b.x);
+  const rows: Array<{ y: number; height: number; words: typeof positioned }> = [];
+  for (const word of positioned) {
+    const row = rows.findLast(
+      (candidate) =>
+        Math.abs(candidate.y - word.y) <=
+        Math.max(10, candidate.height * 0.75, word.height * 0.75),
+    );
+    if (row) {
+      row.words.push(word);
+      row.y = (row.y * (row.words.length - 1) + word.y) / row.words.length;
+      row.height = Math.max(row.height, word.height);
+    } else {
+      rows.push({ y: word.y, height: word.height, words: [word] });
+    }
+  }
+  return rows
+    .map((row) =>
+      row.words.sort((a, b) => a.x - b.x).map((word) => word.text).join(' '),
+    )
+    .join('\n');
+}
+
 export async function POST(request: NextRequest) {
   const apiKey = process.env.GOOGLE_CLOUD_VISION_API_KEY;
   if (!apiKey)
@@ -53,7 +97,14 @@ export async function POST(request: NextRequest) {
       error?: { message?: string };
       responses?: Array<{
         error?: { message?: string };
-        fullTextAnnotation?: { text?: string };
+        fullTextAnnotation?: {
+          text?: string;
+          pages?: Array<{
+            blocks?: Array<{
+              paragraphs?: Array<{ words?: VisionWord[] }>;
+            }>;
+          }>;
+        };
         textAnnotations?: Array<{ description?: string }>;
       }>;
     };
@@ -67,7 +118,11 @@ export async function POST(request: NextRequest) {
           body.error?.message ||
           'The ticket could not be read by the scanning service.',
       );
-    return NextResponse.json({ text });
+    const words = result?.fullTextAnnotation?.pages
+      ?.flatMap((page) => page.blocks ?? [])
+      .flatMap((block) => block.paragraphs ?? [])
+      .flatMap((paragraph) => paragraph.words ?? []);
+    return NextResponse.json({ text, spatialText: spatialTicketText(words) });
   } catch (error) {
     return NextResponse.json(
       {

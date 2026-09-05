@@ -155,17 +155,14 @@ function scanTicket(read: string) {
     : '';
   const expectedEntryCount = expectedEntryCountFromPrice(read);
   const found = new Map<string, string>();
-  for (const line of read.split('\n')) {
-    // Some ticket photos cause OCR to add a stray character before the first
-    // label (for example, "2/A-05..."). Read numbers only after A–E so that
-    // artifact does not replace the first selected number.
-    const labelMatch = line.match(/(?:^|[^A-Z])([A-E])\s*[:.)/-]/i);
-    const label = labelMatch?.[1]?.toUpperCase();
-    const values = labelMatch
-      ? (line
-          .slice((labelMatch.index ?? 0) + labelMatch[0].length)
-          .match(/\d{1,2}/g) ?? [])
-      : [];
+  const labels = [...read.matchAll(/(?:^|[^A-Z0-9])([A-E])\s*[:.)/-]/gi)];
+  for (const [index, labelMatch] of labels.entries()) {
+    // Work from one printed label to the next. This handles OCR output that
+    // incorrectly puts several ticket rows onto one line.
+    const label = labelMatch[1]?.toUpperCase();
+    const start = (labelMatch.index ?? 0) + labelMatch[0].length;
+    const end = labels[index + 1]?.index ?? read.length;
+    const values = read.slice(start, end).match(/\d{1,2}/g) ?? [];
     if (label && values.length >= 6 && !found.has(label))
       found.set(
         label,
@@ -394,10 +391,16 @@ export default function Home() {
       const form = new FormData();
       form.append('image', scanFile);
       const response = await fetch('/api/ocr', { method: 'POST', body: form });
-      const data = (await response.json()) as { text?: string; error?: string };
+      const data = (await response.json()) as {
+        text?: string;
+        spatialText?: string;
+        error?: string;
+      };
       if (!response.ok || !data.text)
         throw new Error(data.error || 'The ticket could not be read.');
-      const ticket = scanTicket(data.text.replace(/\r/g, ''));
+      const ticket = scanTicket(
+        `${data.spatialText ?? ''}\n${data.text}`.replace(/\r/g, ''),
+      );
       if (ticket.detectedGame) setGame(ticket.detectedGame);
       if (ticket.date) setDate(ticket.date);
       if (ticket.entries) setLines(ticket.entries);
