@@ -268,7 +268,9 @@ export default function Home() {
               <Ticket size={22} />
             </span>
             <div>
-              <h1 className="text-xl font-black tracking-tight">Lotto Lens</h1>
+              <h1 className="text-xl font-black tracking-tight">
+                PH-Lotto-Checker
+              </h1>
               <p className="text-xs text-sky-100/70">PCSO ticket checker</p>
             </div>
           </div>
@@ -291,8 +293,8 @@ export default function Home() {
                 Point, scan, see the result
               </h2>
               <p className="mt-1 text-sm leading-6 text-slate-500">
-                Take a clear photo. Lotto Lens reads the game, draw date, and
-                up to five labelled number lines, then checks the official
+                Take a clear photo. PH-Lotto-Checker reads the game, draw date,
+                and up to five labelled number lines, then checks the official
                 result automatically.
               </p>
             </div>
@@ -531,9 +533,9 @@ export default function Home() {
           </aside>
         </section>
         <footer className="mx-auto mt-6 max-w-4xl rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-center text-xs leading-5 text-sky-100/70">
-          Lotto Lens is an independent helper, not PCSO. Results and prizes must
-          be verified with the official PCSO draw results and your original
-          ticket before claiming.
+          PH-Lotto-Checker is an independent helper, not PCSO. Results and
+          prizes must be verified with the official PCSO draw results and your
+          original ticket before claiming.
         </footer>
       </div>
     </main>

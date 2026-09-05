@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Lotto Lens — PCSO Ticket Checker',
+  title: 'PH-Lotto-Checker — PCSO Ticket Checker',
   description: 'Compare Philippine PCSO lotto ticket numbers with official draw results.',
 };
 
