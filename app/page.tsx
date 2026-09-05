@@ -60,6 +60,46 @@ const months: Record<string, string> = {
   nov: '11',
   dec: '12',
 };
+const MAX_SCAN_UPLOAD_BYTES = 3.5 * 1024 * 1024;
+const MAX_SCAN_IMAGE_EDGE = 1800;
+
+async function optimizeTicketPhoto(file: File) {
+  // Phone camera photos are frequently 5–15 MB. Resize them in the browser
+  // before uploading so the server-side OCR request stays below its limit.
+  if (file.size <= MAX_SCAN_UPLOAD_BYTES && file.type !== 'image/heic')
+    return file;
+
+  const sourceUrl = URL.createObjectURL(file);
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const source = new Image();
+      source.onload = () => resolve(source);
+      source.onerror = () => reject(new Error('This photo format could not be prepared for scanning. Please choose a JPEG or PNG photo.'));
+      source.src = sourceUrl;
+    });
+    const scale = Math.min(
+      1,
+      MAX_SCAN_IMAGE_EDGE / Math.max(image.naturalWidth, image.naturalHeight),
+    );
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Your browser could not prepare this ticket photo.');
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+    const compressed = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, 'image/jpeg', 0.88),
+    );
+    if (!compressed)
+      throw new Error('Your browser could not prepare this ticket photo.');
+    if (compressed.size > MAX_SCAN_UPLOAD_BYTES)
+      throw new Error('This ticket photo is still too large after preparation. Please take a closer, front-on photo of the ticket.');
+    return new File([compressed], 'ticket.jpg', { type: 'image/jpeg' });
+  } finally {
+    URL.revokeObjectURL(sourceUrl);
+  }
+}
 const validEntry = /^\s*([A-E])\s*[:.-]\s*((?:\d{1,2}\s+){5}\d{1,2})\s*$/i;
 const hasSixUniqueTicketNumbers = (line: string) => {
   const values = numbers(line);
@@ -343,8 +383,9 @@ export default function Home() {
     setImage(URL.createObjectURL(file));
     setScanning(true);
     try {
+      const scanFile = await optimizeTicketPhoto(file);
       const form = new FormData();
-      form.append('image', file);
+      form.append('image', scanFile);
       const response = await fetch('/api/ocr', { method: 'POST', body: form });
       const data = (await response.json()) as { text?: string; error?: string };
       if (!response.ok || !data.text)
