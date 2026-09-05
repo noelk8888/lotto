@@ -62,6 +62,12 @@ const months: Record<string, string> = {
   dec: '12',
 };
 const validEntry = /^\s*([A-E])\s*[:.-]\s*((?:\d{1,2}\s+){5}\d{1,2})\s*$/i;
+const ticketEntries = (value: string) =>
+  value
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => validEntry.test(line))
+    .slice(0, 5);
 function scanTicket(read: string) {
   const compact = read.toUpperCase().replace(/[^A-Z0-9]/g, '');
   const detectedGame =
@@ -114,15 +120,10 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [result, setResult] = useState<CheckResult | null>(null);
+  const [checkedLines, setCheckedLines] = useState<string[]>([]);
+  const [checkedGame, setCheckedGame] = useState('');
   const [error, setError] = useState('');
-  const ticketLines = useMemo(
-    () =>
-      lines
-        .split('\n')
-        .map((line) => line.trim())
-        .filter((line) => validEntry.test(line)),
-    [lines],
-  );
+  const ticketLines = useMemo(() => ticketEntries(lines), [lines]);
   useEffect(() => {
     const context = (
       document as Document & {
@@ -191,9 +192,16 @@ export default function Home() {
     return () => lifecycle.abort();
   }, []);
   async function checkTicket(ticket = { game, date, lines }) {
+    const entries = ticketEntries(ticket.lines);
+    if (!ticket.date || entries.length < 1)
+      throw new Error(
+        'Add a draw date and at least one complete labelled entry before checking.',
+      );
     setLoading(true);
     setError('');
     setResult(null);
+    setCheckedLines(entries);
+    setCheckedGame(ticket.game);
     try {
       const response = await fetch(
         `/api/pcso?date=${encodeURIComponent(ticket.date)}&game=${encodeURIComponent(ticket.game)}`,
@@ -220,7 +228,8 @@ export default function Home() {
       if (ticket.detectedGame) setGame(ticket.detectedGame);
       if (ticket.date) setDate(ticket.date);
       if (ticket.entries) setLines(ticket.entries);
-      if (!ticket.detectedGame || !ticket.date || !ticket.entries)
+      const entries = ticketEntries(ticket.entries);
+      if (!ticket.detectedGame || !ticket.date || entries.length < 1)
         throw new Error(
           'I read part of the ticket. The detected details are kept below—complete any missing labelled number line, then check again.',
         );
@@ -240,9 +249,11 @@ export default function Home() {
     }
   }
   const winning = result ? numbers(result.combination) : [];
+  const displayedLines = result ? checkedLines : ticketLines;
+  const displayedGame = result ? checkedGame : game;
   const hasWinner =
     result &&
-    ticketLines.some(
+    displayedLines.some(
       (line) =>
         numbers(line).filter((n) => winning.includes(n)).length ===
         winning.length,
@@ -377,8 +388,8 @@ export default function Home() {
                   />
                 </label>
                 <p className="text-xs text-slate-500">
-                  One to five lettered entries are used. All other ticket text
-                  is ignored.
+                  After a complete scan, the result is checked automatically.
+                  Use this button only after correcting detected details.
                 </p>
                 <button
                   disabled={
@@ -397,7 +408,7 @@ export default function Home() {
                     </>
                   ) : (
                     <>
-                      Check ticket entries <ChevronRight size={18} />
+                      Check corrected entries <ChevronRight size={18} />
                     </>
                   )}
                 </button>
@@ -465,11 +476,11 @@ export default function Home() {
                   </p>
                 </div>
                 <div className="mt-5 space-y-3">
-                  {ticketLines.map((line, index) => {
+                  {displayedLines.map((line, index) => {
                     const picked = numbers(line);
                     const matches = picked.filter((n) => winning.includes(n));
                     const tier = prizeTier(
-                      game,
+                      displayedGame,
                       matches.length,
                       winning.length,
                     );
