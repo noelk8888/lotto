@@ -21,18 +21,27 @@ function spatialTicketText(words: VisionWord[] | undefined) {
       return {
         text,
         x: xs.length ? Math.min(...xs) : 0,
-        y: ys.length ? Math.min(...ys) : 0,
+        y: ys.length ? (Math.min(...ys) + Math.max(...ys)) / 2 : 0,
         height: ys.length ? Math.max(...ys) - Math.min(...ys) : 0,
+        slope: vertices.length >= 2 && (vertices[1].x ?? 0) !== (vertices[0].x ?? 0)
+          ? ((vertices[1].y ?? 0) - (vertices[0].y ?? 0)) / ((vertices[1].x ?? 0) - (vertices[0].x ?? 0)) : 0,
       };
     })
     .filter((word) => word.text && word.height > 0)
     .sort((a, b) => a.y - b.y || a.x - b.x);
+  // Correct the overall printed baseline before grouping. A fixed 10-pixel
+  // tolerance can span two rows in a small image, so use relative text height.
+  const slopes = positioned.filter(word => /^\d{2}$/.test(word.text ?? '') && Math.abs(word.slope) < 0.3)
+    .map(word => word.slope).sort((a, b) => a - b);
+  const slope = slopes[Math.floor(slopes.length / 2)] ?? 0;
+  for (const word of positioned) word.y -= slope * word.x;
+  positioned.sort((a, b) => a.y - b.y || a.x - b.x);
   const rows: Array<{ y: number; height: number; words: typeof positioned }> = [];
   for (const word of positioned) {
     const row = rows.findLast(
       (candidate) =>
         Math.abs(candidate.y - word.y) <=
-        Math.max(10, candidate.height * 0.75, word.height * 0.75),
+        Math.min(candidate.height, word.height) * 0.4,
     );
     if (row) {
       row.words.push(word);

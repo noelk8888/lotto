@@ -1,6 +1,7 @@
 'use client';
 
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { extractTicketEntries, validTicketNumbers } from './ticket-entries';
 import {
   Camera,
   CheckCircle2,
@@ -67,7 +68,7 @@ const MAX_SCAN_IMAGE_EDGE = 3000;
 async function optimizeTicketPhoto(file: File) {
   // Phone camera photos are frequently 5–15 MB. Resize them in the browser
   // before uploading so the server-side OCR request stays below its limit.
-  if (file.size <= MAX_SCAN_UPLOAD_BYTES && file.type !== 'image/heic')
+  if (file.size <= MAX_SCAN_UPLOAD_BYTES && !/hei[cf]/i.test(file.type))
     return file;
 
   const sourceUrl = URL.createObjectURL(file);
@@ -88,12 +89,20 @@ async function optimizeTicketPhoto(file: File) {
       );
       canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
       canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+      context.fillStyle = '#ffffff';
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.imageSmoothingEnabled = true;
+      context.imageSmoothingQuality = 'high';
       context.drawImage(image, 0, 0, canvas.width, canvas.height);
       return new Promise<Blob | null>((resolve) =>
         canvas.toBlob(resolve, 'image/jpeg', quality),
       );
     };
-    let compressed = await makeJpeg(MAX_SCAN_IMAGE_EDGE, 0.92);
+    // Try full resolution first. Reduce dimensions only if required by the
+    // upload limit; CSS preview dimensions must never determine OCR resolution.
+    let compressed = await makeJpeg(Math.max(image.naturalWidth, image.naturalHeight), 0.92);
+    if (compressed && compressed.size > MAX_SCAN_UPLOAD_BYTES)
+      compressed = await makeJpeg(MAX_SCAN_IMAGE_EDGE, 0.92);
     if (compressed && compressed.size > MAX_SCAN_UPLOAD_BYTES)
       compressed = await makeJpeg(MAX_SCAN_IMAGE_EDGE, 0.82);
     if (compressed && compressed.size > MAX_SCAN_UPLOAD_BYTES)
@@ -111,9 +120,7 @@ const validEntry = /^\s*([A-E])\s*[:.-]\s*((?:\d{1,2}\s+){5}\d{1,2})\s*$/i;
 const hasSixUniqueTicketNumbers = (line: string) => {
   const values = numbers(line);
   return (
-    values.length === 6 &&
-    values.every((value) => value >= 1 && value <= 58) &&
-    new Set(values).size === 6
+    validTicketNumbers(values)
   );
 };
 const individuallyValidTicketEntries = (value: string) =>
@@ -124,6 +131,7 @@ const individuallyValidTicketEntries = (value: string) =>
     .slice(0, 5);
 const ticketEntries = (value: string) => {
   const entries = individuallyValidTicketEntries(value);
+  if (entries.length !== value.split('\n').filter(line => line.trim()).length) return [];
   const isSequential = entries.every(
     (entry, index) =>
       entry[0] === String.fromCharCode('A'.charCodeAt(0) + index),
@@ -139,7 +147,7 @@ function expectedEntryCountFromPrice(read: string) {
     .filter((amount) => amount >= 25 && amount <= 125 && amount % 25 === 0);
   return amounts[0] ? amounts[0] / 25 : 0;
 }
-function scanTicket(read: string) {
+function scanTicket(read: string, spatialText = '') {
   const compact = read.toUpperCase().replace(/[^A-Z0-9]/g, '');
   const detectedGame =
     gamePatterns.find(([pattern]) => compact.includes(pattern))?.[1] ?? '';
@@ -154,32 +162,11 @@ function scanTicket(read: string) {
     ? `${draw[3].length === 2 ? `20${draw[3]}` : draw[3]}-${months[draw[2].toLowerCase()] ?? ''}-${draw[1].padStart(2, '0')}`
     : '';
   const expectedEntryCount = expectedEntryCountFromPrice(read);
-  const found = new Map<string, string>();
-  const labels = [...read.matchAll(/(?:^|[^A-Z0-9])([A-E])\s*[:.)/-]/gi)];
-  for (const [index, labelMatch] of labels.entries()) {
-    // Work from one printed label to the next. This handles OCR output that
-    // incorrectly puts several ticket rows onto one line.
-    const label = labelMatch[1]?.toUpperCase();
-    const start = (labelMatch.index ?? 0) + labelMatch[0].length;
-    const end = labels[index + 1]?.index ?? read.length;
-    const values = read.slice(start, end).match(/\d{1,2}/g) ?? [];
-    if (label && values.length >= 6 && !found.has(label))
-      found.set(
-        label,
-        `${label}: ${values
-          .slice(0, 6)
-          .map((value) => value.padStart(2, '0'))
-          .join(' ')}`,
-      );
-  }
-  const entries = [...found.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .slice(0, 5)
-    .map(([, entry]) => entry);
+  const entries = extractTicketEntries([spatialText, read]);
   return {
     detectedGame,
     date,
-    entries: entries.join('\n'),
+    entries,
     expectedEntryCount,
   };
 }
@@ -309,6 +296,7 @@ export default function Home() {
     if (
       !ticket.game ||
       !ticket.date ||
+      entries.some(entry => !validTicketNumbers(numbers(entry), Number(ticket.game.match(/6\/(\d+)/)?.[1] ?? 58))) ||
       entries.length < 1 ||
       (ticket.expectedEntryCount > 0 &&
         entries.length !== ticket.expectedEntryCount)
@@ -342,12 +330,10 @@ export default function Home() {
     const maximum = Number(game.match(/6\/(\d+)/)?.[1] ?? 58);
     if (
       !selectedManualLabel ||
-      picked.length !== 6 ||
-      picked.some((value) => value < 1 || value > maximum) ||
-      new Set(picked).size !== 6
+      !validTicketNumbers(picked, maximum)
     ) {
       setError(
-        `Enter six different numbers from 1 to ${maximum} for the missing set.`,
+        `Enter six different numbers from 1 to ${maximum}, smallest to largest, exactly as printed.`,
       );
       return;
     }
@@ -399,7 +385,8 @@ export default function Home() {
       if (!response.ok || !data.text)
         throw new Error(data.error || 'The ticket could not be read.');
       const ticket = scanTicket(
-        `${data.spatialText ?? ''}\n${data.text}`.replace(/\r/g, ''),
+        data.text.replace(/\r/g, ''),
+        (data.spatialText ?? '').replace(/\r/g, ''),
       );
       if (ticket.detectedGame) setGame(ticket.detectedGame);
       if (ticket.date) setDate(ticket.date);
