@@ -10,7 +10,6 @@ import {
   RefreshCw,
   RotateCcw,
   ScanLine,
-  Ticket,
   Trophy,
   XCircle,
 } from 'lucide-react';
@@ -323,17 +322,18 @@ export default function Home() {
       const data = (await response.json()) as {
         text?: string;
         spatialText?: string;
+        labelledText?: string;
         error?: string;
       };
       if (!response.ok || !data.text)
         throw new Error(data.error || 'The ticket could not be read.');
       const ticket = scanTicket(
         data.text.replace(/\r/g, ''),
-        (data.spatialText ?? '').replace(/\r/g, ''),
+        `${data.labelledText ?? ''}\n${data.spatialText ?? ''}`.replace(/\r/g, ''),
       );
       if (ticket.detectedGame) setGame(ticket.detectedGame);
       if (ticket.date) setDate(ticket.date);
-      setLines(partialTicketEntries([data.spatialText ?? '', data.text], ticket.expectedEntryCount));
+      setLines(partialTicketEntries([data.labelledText ?? '', data.spatialText ?? '', data.text], ticket.expectedEntryCount));
       if (ticket.expectedEntryCount)
         setExpectedEntryCount(ticket.expectedEntryCount);
       const entries = ticketEntries(ticket.entries);
@@ -383,7 +383,7 @@ export default function Home() {
         <header className="mb-7 flex items-center justify-between gap-3 text-white">
           <div className="flex items-center gap-3">
             <span className="grid h-10 w-10 place-items-center rounded-2xl bg-[#f7c843] text-[#07243a]">
-              <Ticket size={22} />
+              <img src="/app-logo.jpg" alt="PH Lotto Checker" className="h-10 w-10 rounded-xl object-contain bg-white" />
             </span>
             <div>
               <h1 className="text-xl font-black tracking-tight">

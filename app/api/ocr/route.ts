@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { labelledRows } from '../../vision-rows';
 
 export const runtime = 'nodejs';
 
@@ -131,7 +132,7 @@ export async function POST(request: NextRequest) {
       ?.flatMap((page) => page.blocks ?? [])
       .flatMap((block) => block.paragraphs ?? [])
       .flatMap((paragraph) => paragraph.words ?? []);
-    return NextResponse.json({ text, spatialText: spatialTicketText(words) });
+    return NextResponse.json({ text, spatialText: spatialTicketText(words), labelledText: labelledRows(words) });
   } catch (error) {
     return NextResponse.json(
       {
