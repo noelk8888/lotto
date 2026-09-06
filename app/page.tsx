@@ -133,14 +133,30 @@ async function enhanceTicketPhoto(file: File) {
       source.onerror = () => reject(new Error('The ticket photo could not be enhanced.'));
       source.src = sourceUrl;
     });
-    // Keep the optional pass small enough for phones with limited browser memory.
-    const scale = Math.min(1, 1800 / Math.max(image.naturalWidth, image.naturalHeight));
+    // PCSO tickets place the game and A–E block in the upper-middle portion.
+    // Crop away the surrounding scene and barcode, then enlarge the print for
+    // a focused second OCR pass.
+    const sourceX = Math.round(image.naturalWidth * 0.02);
+    const sourceY = Math.round(image.naturalHeight * 0.12);
+    const sourceWidth = Math.round(image.naturalWidth * 0.96);
+    const sourceHeight = Math.round(image.naturalHeight * 0.55);
+    const scale = Math.min(2.5, 2600 / sourceWidth);
     const canvas = document.createElement('canvas');
-    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
-    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+    canvas.width = Math.max(1, Math.round(sourceWidth * scale));
+    canvas.height = Math.max(1, Math.round(sourceHeight * scale));
     const context = canvas.getContext('2d', { willReadFrequently: true });
     if (!context) throw new Error('The ticket photo could not be enhanced.');
-    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    context.drawImage(
+      image,
+      sourceX,
+      sourceY,
+      sourceWidth,
+      sourceHeight,
+      0,
+      0,
+      canvas.width,
+      canvas.height,
+    );
     const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
     for (let index = 0; index < pixels.data.length; index += 4) {
       const red = pixels.data[index];
