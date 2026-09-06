@@ -2,6 +2,7 @@
 
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { editableTicketEntries, partialTicketEntries, extractTicketEntries, validTicketNumbers } from './ticket-entries';
+import { detectTicketGame } from './game-recognition';
 import {
   Camera,
   CheckCircle2,
@@ -38,24 +39,6 @@ const numbers = (value: string) => value.match(/\d{1,2}/g)?.map(Number) ?? [];
 const lineLabel = (value: string, index: number) =>
   value.match(/^\s*([A-Z])\s*[:.-]/i)?.[1]?.toUpperCase() ??
   `Line ${index + 1}`;
-const gamePatterns = [
-  ['ULTRALOTTO658', 'Ultra Lotto 6/58'],
-  ['GRANDLOTTO655', 'Grand Lotto 6/55'],
-  ['SUPERLOTTO649', 'Superlotto 6/49'],
-  ['MEGALOTTO645', 'Megalotto 6/45'],
-  ['LOTTO642', 'Lotto 6/42'],
-  ['6DLOTTO', '6D Lotto'],
-  ['4DLOTTO', '4D Lotto'],
-  ['3DLOTTO', '3D Lotto'],
-  ['2DLOTTO', '2D Lotto'],
-] as const;
-const gameAliases = [
-  ['ULTRALOTTO', 'Ultra Lotto 6/58'],
-  ['GRANDOTTO', 'Grand Lotto 6/55'],
-  ['GRANDLOTTO', 'Grand Lotto 6/55'],
-  ['SUPERLOTTO', 'Superlotto 6/49'],
-  ['MEGALOTTO', 'Megalotto 6/45'],
-] as const;
 const months: Record<string, string> = {
   jan: '01',
   feb: '02',
@@ -207,11 +190,8 @@ function expectedEntryCountFromPrice(read: string) {
     .filter((amount) => amount >= 25 && amount <= 125 && amount % 25 === 0);
   return amounts[0] ? amounts[0] / 25 : 0;
 }
-function scanTicket(read: string, spatialText = '') {
-  const compact = read.toUpperCase().replace(/[^A-Z0-9]/g, '');
-  let detectedGame =
-    gamePatterns.find(([pattern]) => compact.includes(pattern))?.[1] ??
-    gameAliases.find(([pattern]) => compact.includes(pattern))?.[1] ?? '';
+function scanTicket(read: string, spatialText = '', focusedLogoText = '') {
+  let detectedGame = detectTicketGame(read, focusedLogoText);
   const draw =
     read.match(
       /DRAW[^\n]{0,80}?(\d{1,2})\s*[-/]\s*([A-Z]{3})\s*[-/]\s*(\d{2,4})/i,
@@ -411,6 +391,7 @@ export default function Home() {
       const ticket = scanTicket(
         `${primary.text}\n${enhanced.text ?? ''}`.replace(/\r/g, ''),
         `${primary.labelledText ?? ''}\n${primary.spatialText ?? ''}\n${enhanced.labelledText ?? ''}\n${enhanced.spatialText ?? ''}`.replace(/\r/g, ''),
+        enhanced.text ?? '',
       );
       if (ticket.detectedGame) setGame(ticket.detectedGame);
       if (ticket.date) setDate(ticket.date);
