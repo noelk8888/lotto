@@ -7,7 +7,7 @@ export function validTicketNumbers(values: number[], maximum = 58) {
 // Keep OCR representations separate: never join the end of one reading to
 // the beginning of another, or collect numbers from unlabelled receipt text.
 export function extractTicketEntries(readings: string[]) {
-  const candidates = new Map<string, Set<string>>();
+  const candidates = new Map<string, string>();
   for (const reading of readings) {
     const pattern = /(?:^|\n)\s*([A-E])\s*[:.)/-]\s*((?:\d{1,2}[ \t]+){5}\d{1,2})[ \t]*(?:LP)?[ \t]*(?=\n|$)/gi;
     for (const match of reading.matchAll(pattern)) {
@@ -15,15 +15,14 @@ export function extractTicketEntries(readings: string[]) {
       if (!validTicketNumbers(values)) continue;
       const label = match[1].toUpperCase();
       const entry = `${label}: ${values.map(value => String(value).padStart(2, '0')).join(' ')}`;
-      const options = candidates.get(label) ?? new Set<string>();
-      options.add(entry);
-      candidates.set(label, options);
+      // Readings are supplied in confidence order. Keep the first complete,
+      // structurally valid row rather than allowing lower-confidence OCR to
+      // erase it when the same row is read differently later.
+      if (!candidates.has(label)) candidates.set(label, entry);
     }
   }
-  // Disagreement needs review, even when both alternatives look plausible.
   return [...candidates.entries()].sort(([a], [b]) => a.localeCompare(b))
-    .filter(([, options]) => options.size === 1)
-    .map(([, options]) => [...options][0]).join('\n');
+    .map(([, entry]) => entry).join('\n');
 }
 
 export function editableTicketEntries(entries: string, count: number) {

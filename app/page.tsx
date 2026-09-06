@@ -49,6 +49,13 @@ const gamePatterns = [
   ['3DLOTTO', '3D Lotto'],
   ['2DLOTTO', '2D Lotto'],
 ] as const;
+const gameAliases = [
+  ['ULTRALOTTO', 'Ultra Lotto 6/58'],
+  ['GRANDOTTO', 'Grand Lotto 6/55'],
+  ['GRANDLOTTO', 'Grand Lotto 6/55'],
+  ['SUPERLOTTO', 'Superlotto 6/49'],
+  ['MEGALOTTO', 'Megalotto 6/45'],
+] as const;
 const months: Record<string, string> = {
   jan: '01',
   feb: '02',
@@ -151,7 +158,8 @@ function expectedEntryCountFromPrice(read: string) {
 function scanTicket(read: string, spatialText = '') {
   const compact = read.toUpperCase().replace(/[^A-Z0-9]/g, '');
   const detectedGame =
-    gamePatterns.find(([pattern]) => compact.includes(pattern))?.[1] ?? '';
+    gamePatterns.find(([pattern]) => compact.includes(pattern))?.[1] ??
+    gameAliases.find(([pattern]) => compact.includes(pattern))?.[1] ?? '';
   const draw =
     read.match(
       /DRAW[^\n]{0,80}?(\d{1,2})\s*[-/]\s*([A-Z]{3})\s*[-/]\s*(\d{2,4})/i,

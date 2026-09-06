@@ -39,10 +39,15 @@ test('does not fill a short row from price, date, or another reading', () => {
 test('valid raw rows can recover invalid spatial rows without guessing', () => {
   assert.equal(extractTicketEntries(['A: 05 09 11 21 30 30', ticket[0]]), ticket[0]);
 });
-test('conflicting valid readings remain missing; duplicate readings agree', () => {
-  assert.equal(extractTicketEntries([ticket[0], 'A: 05 09 11 21 30 38']), '');
+test('first valid row wins when a lower-confidence reading disagrees', () => {
+  assert.equal(extractTicketEntries([ticket[0], 'A: 05 09 11 21 30 38']), ticket[0]);
   assert.equal(extractTicketEntries([ticket.join('\n'), ticket.join('\n')]), ticket.join('\n'));
 });
 test('missing labels are never reassigned', () => {
   assert.equal(extractTicketEntries([`${ticket[1]}\n${ticket[3]}`]), `${ticket[1]}\n${ticket[3]}`);
+});
+test('valid high-confidence rows survive incomplete lower-confidence text', () => {
+  const labelled = 'A: 18 19 43 48 52 53\nC: 17 18 19 38 39 52\nD: 04 30 32 33 42 53\nE: 04 08 28 32 38 47';
+  const spatial = 'A : 18 19 43 48 52 53 LP\nB : 21 24 29 44 52 LP\nC : 17 18 19 38 39 52 LP\nD : 04 30 32 33 42 53 LP\nE : 04 08 28 32 38 47 LP';
+  assert.equal(extractTicketEntries([labelled, spatial]), labelled);
 });
