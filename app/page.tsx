@@ -384,33 +384,37 @@ export default function Home() {
       const scanFile = await optimizeTicketPhoto(file);
       const form = new FormData();
       form.append('image', scanFile);
-      // Enhancement is additive. A phone that cannot allocate the extra canvas
-      // must still send and use the original photo.
-      try {
-        const enhancedFile = await enhanceTicketPhoto(scanFile);
-        form.append('enhancedImage', enhancedFile);
-      } catch {
-        // The full-resolution original remains the primary OCR source.
-      }
       const response = await fetch('/api/ocr', { method: 'POST', body: form });
-      const data = (await response.json()) as {
+      const primary = (await response.json()) as {
         text?: string;
         spatialText?: string;
-        enhancedText?: string;
-        enhancedSpatialText?: string;
         labelledText?: string;
-        enhancedLabelledText?: string;
         error?: string;
       };
-      if (!response.ok || !data.text)
-        throw new Error(data.error || 'The ticket could not be read.');
+      if (!response.ok || !primary.text)
+        throw new Error(primary.error || 'The ticket could not be read.');
+      let enhanced: typeof primary = {};
+      // Send the focused pass separately. Its size or failure can never prevent
+      // the already-successful original response from being used.
+      try {
+        const enhancedFile = await enhanceTicketPhoto(scanFile);
+        const enhancedForm = new FormData();
+        enhancedForm.append('image', enhancedFile);
+        const enhancedResponse = await fetch('/api/ocr', {
+          method: 'POST',
+          body: enhancedForm,
+        });
+        if (enhancedResponse.ok) enhanced = await enhancedResponse.json();
+      } catch {
+        // The primary response remains complete and usable.
+      }
       const ticket = scanTicket(
-        `${data.text}\n${data.enhancedText ?? ''}`.replace(/\r/g, ''),
-        `${data.labelledText ?? ''}\n${data.spatialText ?? ''}\n${data.enhancedLabelledText ?? ''}\n${data.enhancedSpatialText ?? ''}`.replace(/\r/g, ''),
+        `${primary.text}\n${enhanced.text ?? ''}`.replace(/\r/g, ''),
+        `${primary.labelledText ?? ''}\n${primary.spatialText ?? ''}\n${enhanced.labelledText ?? ''}\n${enhanced.spatialText ?? ''}`.replace(/\r/g, ''),
       );
       if (ticket.detectedGame) setGame(ticket.detectedGame);
       if (ticket.date) setDate(ticket.date);
-      setLines(partialTicketEntries([data.labelledText ?? '', data.spatialText ?? '', data.enhancedLabelledText ?? '', data.enhancedSpatialText ?? '', data.text, data.enhancedText ?? ''], ticket.expectedEntryCount));
+      setLines(partialTicketEntries([primary.labelledText ?? '', primary.spatialText ?? '', enhanced.labelledText ?? '', enhanced.spatialText ?? '', primary.text, enhanced.text ?? ''], ticket.expectedEntryCount));
       if (ticket.expectedEntryCount)
         setExpectedEntryCount(ticket.expectedEntryCount);
       const entries = ticketEntries(ticket.entries);

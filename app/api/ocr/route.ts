@@ -73,7 +73,6 @@ export async function POST(request: NextRequest) {
   try {
     const form = await request.formData();
     const image = form.get('image');
-    const enhancedImage = form.get('enhancedImage');
     if (!(image instanceof File))
       return NextResponse.json(
         { error: 'Choose a ticket photo first.' },
@@ -89,25 +88,15 @@ export async function POST(request: NextRequest) {
         { error: 'Use a ticket photo smaller than 4 MB.' },
         { status: 413 },
       );
-    if (enhancedImage instanceof File &&
-        (!enhancedImage.type.startsWith('image/') || enhancedImage.size > MAX_IMAGE_BYTES))
-      return NextResponse.json(
-        { error: 'The enhanced ticket photo could not be processed.' },
-        { status: 413 },
-      );
-
     const content = Buffer.from(await image.arrayBuffer()).toString('base64');
-    const enhancedContent = enhancedImage instanceof File
-      ? Buffer.from(await enhancedImage.arrayBuffer()).toString('base64')
-      : undefined;
     const response = await fetch(`${GOOGLE_VISION_URL}?key=${apiKey}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
-        requests: [content, enhancedContent].filter(Boolean).map((imageContent) => ({
-            image: { content: imageContent },
-            features: [{ type: 'DOCUMENT_TEXT_DETECTION' }],
-          })),
+        requests: [{
+          image: { content },
+          features: [{ type: 'DOCUMENT_TEXT_DETECTION' }],
+        }],
       }),
       cache: 'no-store',
     });
@@ -141,20 +130,10 @@ export async function POST(request: NextRequest) {
       ?.flatMap((page) => page.blocks ?? [])
       .flatMap((block) => block.paragraphs ?? [])
       .flatMap((paragraph) => paragraph.words ?? []);
-    const enhancedResult = results[1];
-    const enhancedText = enhancedResult?.fullTextAnnotation?.text ??
-      enhancedResult?.textAnnotations?.[0]?.description;
-    const enhancedWords = enhancedResult?.fullTextAnnotation?.pages
-      ?.flatMap((page) => page.blocks ?? [])
-      .flatMap((block) => block.paragraphs ?? [])
-      .flatMap((paragraph) => paragraph.words ?? []);
     return NextResponse.json({
       text,
-      enhancedText,
       spatialText: spatialTicketText(words),
-      enhancedSpatialText: spatialTicketText(enhancedWords),
       labelledText: labelledRows(words),
-      enhancedLabelledText: labelledRows(enhancedWords),
     });
   } catch (error) {
     return NextResponse.json(
