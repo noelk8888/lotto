@@ -133,7 +133,8 @@ async function enhanceTicketPhoto(file: File) {
       source.onerror = () => reject(new Error('The ticket photo could not be enhanced.'));
       source.src = sourceUrl;
     });
-    const scale = Math.min(1, MAX_SCAN_IMAGE_EDGE / Math.max(image.naturalWidth, image.naturalHeight));
+    // Keep the optional pass small enough for phones with limited browser memory.
+    const scale = Math.min(1, 1800 / Math.max(image.naturalWidth, image.naturalHeight));
     const canvas = document.createElement('canvas');
     canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
     canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
@@ -192,7 +193,7 @@ function expectedEntryCountFromPrice(read: string) {
 }
 function scanTicket(read: string, spatialText = '') {
   const compact = read.toUpperCase().replace(/[^A-Z0-9]/g, '');
-  const detectedGame =
+  let detectedGame =
     gamePatterns.find(([pattern]) => compact.includes(pattern))?.[1] ??
     gameAliases.find(([pattern]) => compact.includes(pattern))?.[1] ?? '';
   const draw =
@@ -207,6 +208,10 @@ function scanTicket(read: string, spatialText = '') {
     : '';
   const expectedEntryCount = expectedEntryCountFromPrice(read);
   const entries = extractTicketEntries([spatialText, read]);
+  if (!detectedGame) {
+    const largest = Math.max(0, ...numbers(entries));
+    if (largest > 55) detectedGame = 'Ultra Lotto 6/58';
+  }
   return {
     detectedGame,
     date,
@@ -361,10 +366,16 @@ export default function Home() {
     setScanning(true);
     try {
       const scanFile = await optimizeTicketPhoto(file);
-      const enhancedFile = await enhanceTicketPhoto(scanFile);
       const form = new FormData();
       form.append('image', scanFile);
-      form.append('enhancedImage', enhancedFile);
+      // Enhancement is additive. A phone that cannot allocate the extra canvas
+      // must still send and use the original photo.
+      try {
+        const enhancedFile = await enhanceTicketPhoto(scanFile);
+        form.append('enhancedImage', enhancedFile);
+      } catch {
+        // The full-resolution original remains the primary OCR source.
+      }
       const response = await fetch('/api/ocr', { method: 'POST', body: form });
       const data = (await response.json()) as {
         text?: string;
@@ -372,17 +383,18 @@ export default function Home() {
         enhancedText?: string;
         enhancedSpatialText?: string;
         labelledText?: string;
+        enhancedLabelledText?: string;
         error?: string;
       };
       if (!response.ok || !data.text)
         throw new Error(data.error || 'The ticket could not be read.');
       const ticket = scanTicket(
-        `${data.enhancedText ?? ''}\n${data.text}`.replace(/\r/g, ''),
-        `${data.labelledText ?? ''}\n${data.enhancedSpatialText ?? ''}\n${data.spatialText ?? ''}`.replace(/\r/g, ''),
+        `${data.text}\n${data.enhancedText ?? ''}`.replace(/\r/g, ''),
+        `${data.labelledText ?? ''}\n${data.spatialText ?? ''}\n${data.enhancedLabelledText ?? ''}\n${data.enhancedSpatialText ?? ''}`.replace(/\r/g, ''),
       );
       if (ticket.detectedGame) setGame(ticket.detectedGame);
       if (ticket.date) setDate(ticket.date);
-      setLines(partialTicketEntries([data.labelledText ?? '', data.enhancedSpatialText ?? '', data.spatialText ?? '', data.enhancedText ?? '', data.text], ticket.expectedEntryCount));
+      setLines(partialTicketEntries([data.labelledText ?? '', data.spatialText ?? '', data.enhancedLabelledText ?? '', data.enhancedSpatialText ?? '', data.text, data.enhancedText ?? ''], ticket.expectedEntryCount));
       if (ticket.expectedEntryCount)
         setExpectedEntryCount(ticket.expectedEntryCount);
       const entries = ticketEntries(ticket.entries);

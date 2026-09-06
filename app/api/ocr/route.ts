@@ -153,7 +153,8 @@ export async function POST(request: NextRequest) {
       enhancedText,
       spatialText: spatialTicketText(words),
       enhancedSpatialText: spatialTicketText(enhancedWords),
-      labelledText: [labelledRows(enhancedWords), labelledRows(words)].filter(Boolean).join('\n'),
+      labelledText: labelledRows(words),
+      enhancedLabelledText: labelledRows(enhancedWords),
     });
   } catch (error) {
     return NextResponse.json(
