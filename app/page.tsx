@@ -124,6 +124,41 @@ async function optimizeTicketPhoto(file: File) {
     URL.revokeObjectURL(sourceUrl);
   }
 }
+async function enhanceTicketPhoto(file: File) {
+  const sourceUrl = URL.createObjectURL(file);
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const source = new Image();
+      source.onload = () => resolve(source);
+      source.onerror = () => reject(new Error('The ticket photo could not be enhanced.'));
+      source.src = sourceUrl;
+    });
+    const scale = Math.min(1, MAX_SCAN_IMAGE_EDGE / Math.max(image.naturalWidth, image.naturalHeight));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+    const context = canvas.getContext('2d', { willReadFrequently: true });
+    if (!context) throw new Error('The ticket photo could not be enhanced.');
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
+    for (let index = 0; index < pixels.data.length; index += 4) {
+      const red = pixels.data[index];
+      const green = pixels.data[index + 1];
+      const blue = pixels.data[index + 2];
+      const gray = 0.299 * red + 0.587 * green + 0.114 * blue;
+      // Suppress the pink security pattern, then strengthen dark ticket text.
+      const pink = red > green + 14 && red > blue + 8;
+      const value = pink ? 255 : gray < 145 ? 0 : gray > 195 ? 255 : Math.round((gray - 145) * 5.1);
+      pixels.data[index] = pixels.data[index + 1] = pixels.data[index + 2] = value;
+    }
+    context.putImageData(pixels, 0, 0);
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.9));
+    if (!blob) throw new Error('The ticket photo could not be enhanced.');
+    return new File([blob], 'ticket-enhanced.jpg', { type: 'image/jpeg' });
+  } finally {
+    URL.revokeObjectURL(sourceUrl);
+  }
+}
 const validEntry = /^\s*([A-E])\s*[:.-]\s*((?:\d{1,2}\s+){5}\d{1,2})\s*$/i;
 const hasSixUniqueTicketNumbers = (line: string) => {
   const values = numbers(line);
@@ -326,24 +361,28 @@ export default function Home() {
     setScanning(true);
     try {
       const scanFile = await optimizeTicketPhoto(file);
+      const enhancedFile = await enhanceTicketPhoto(scanFile);
       const form = new FormData();
       form.append('image', scanFile);
+      form.append('enhancedImage', enhancedFile);
       const response = await fetch('/api/ocr', { method: 'POST', body: form });
       const data = (await response.json()) as {
         text?: string;
         spatialText?: string;
+        enhancedText?: string;
+        enhancedSpatialText?: string;
         labelledText?: string;
         error?: string;
       };
       if (!response.ok || !data.text)
         throw new Error(data.error || 'The ticket could not be read.');
       const ticket = scanTicket(
-        data.text.replace(/\r/g, ''),
-        `${data.labelledText ?? ''}\n${data.spatialText ?? ''}`.replace(/\r/g, ''),
+        `${data.enhancedText ?? ''}\n${data.text}`.replace(/\r/g, ''),
+        `${data.labelledText ?? ''}\n${data.enhancedSpatialText ?? ''}\n${data.spatialText ?? ''}`.replace(/\r/g, ''),
       );
       if (ticket.detectedGame) setGame(ticket.detectedGame);
       if (ticket.date) setDate(ticket.date);
-      setLines(partialTicketEntries([data.labelledText ?? '', data.spatialText ?? '', data.text], ticket.expectedEntryCount));
+      setLines(partialTicketEntries([data.labelledText ?? '', data.enhancedSpatialText ?? '', data.spatialText ?? '', data.enhancedText ?? '', data.text], ticket.expectedEntryCount));
       if (ticket.expectedEntryCount)
         setExpectedEntryCount(ticket.expectedEntryCount);
       const entries = ticketEntries(ticket.entries);
