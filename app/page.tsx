@@ -3,6 +3,7 @@
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { editableTicketEntries, partialTicketEntries, extractTicketEntries, validTicketNumbers } from './ticket-entries';
 import { detectTicketGame } from './game-recognition';
+import { displayDrawDate, storedDrawDate } from './date-format';
 import {
   Camera,
   CheckCircle2,
@@ -226,6 +227,12 @@ function prizeTier(game: string, matched: number, total: number) {
     ? `${matched} matching number${matched === 1 ? '' : 's'} — no prize`
     : 'No matching prize tier';
 }
+function isWinningEntry(game: string, picked: number[], winning: number[]) {
+  if (game.includes('6/'))
+    return picked.filter((number) => winning.includes(number)).length >= 3;
+  return picked.length === winning.length &&
+    picked.every((number, index) => number === winning[index]);
+}
 
 export default function Home() {
   const input = useRef<HTMLInputElement>(null);
@@ -431,13 +438,10 @@ export default function Home() {
   const winning = result ? numbers(result.combination) : [];
   const displayedLines = result ? checkedLines : ticketLines;
   const displayedGame = result ? checkedGame : game;
-  const hasWinner =
-    result &&
-    displayedLines.some(
-      (line) =>
-        numbers(line).filter((n) => winning.includes(n)).length ===
-        winning.length,
-    );
+  const hasWinner = result && displayedLines.some((line) => {
+    const picked = numbers(line);
+    return isWinningEntry(displayedGame, picked, winning);
+  });
   return (
     <main className="min-h-screen bg-[#071a2b] text-slate-950">
       <div className="mesh" />
@@ -584,9 +588,11 @@ export default function Home() {
                 <label className="block min-w-0 text-sm font-bold text-slate-700">
                   Detected draw date
                   <input
-                    value={date}
-                    onChange={(e) => setDate(e.target.value)}
-                    type="date"
+                    value={displayDrawDate(date)}
+                    onChange={(e) => setDate(storedDrawDate(e.target.value))}
+                    type="text"
+                    inputMode="text"
+                    placeholder="06-Sep-2026"
                     className="mt-1.5 min-w-0 max-w-full w-full rounded-xl border border-slate-200 px-1 py-3 text-sm outline-none focus:border-sky-600"
                   />
                 </label>
@@ -655,10 +661,13 @@ export default function Home() {
                 <p className="text-xs font-bold uppercase tracking-[.16em] text-[#f7c843]">
                   Official PCSO draw found
                 </p>
-                {result.savedCopy && <p className="mt-2 text-sm text-sky-100/80">Saved official result, verified on {result.verifiedOn}. Live PCSO access was unavailable.</p>}
+                {result.savedCopy && <p className="mt-2 text-sm text-sky-100/80">Saved official result, verified on {displayDrawDate(result.verifiedOn ?? '')}. Live PCSO access was unavailable.</p>}
                 <h2 className="mt-2 text-xl font-black">{result.game}</h2>
                 <p className="mt-1 text-sm text-sky-100/70">
-                  {result.date} · Jackpot ₱{result.jackpot}
+                  {displayDrawDate(result.date)} · Jackpot ₱{result.jackpot}
+                </p>
+                <p className="mt-1 text-sm font-bold text-sky-100">
+                  Jackpot winners: {result.winners}
                 </p>
                 <div
                   className={`mt-5 rounded-2xl border p-4 ${hasWinner ? 'border-emerald-300/20 bg-emerald-400/10' : 'border-rose-300/20 bg-rose-400/10'}`}
@@ -692,7 +701,7 @@ export default function Home() {
                       matches.length,
                       winning.length,
                     );
-                    const won = matches.length >= 3;
+                    const won = isWinningEntry(displayedGame, picked, winning);
                     return (
                       <div
                         key={`${line}-${index}`}
