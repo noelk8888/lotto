@@ -31,6 +31,8 @@ type CheckResult = {
   date: string;
   jackpot: string;
   winners: string;
+  savedCopy?: boolean;
+  verifiedOn?: string;
 };
 const numbers = (value: string) => value.match(/\d{1,2}/g)?.map(Number) ?? [];
 const lineLabel = (value: string, index: number) =>
@@ -577,15 +579,15 @@ export default function Home() {
               <div className="flex h-full min-h-80 flex-col justify-center">
                 <XCircle className="mb-4 text-rose-300" size={34} />
                 <h2 className="text-xl font-black">
-                  Couldn’t complete the automatic check
+                  {checkedLines.length > 0 ? 'Ticket read — result lookup failed' : 'Couldn’t complete the automatic check'}
                 </h2>
                 <p className="mt-3 text-sm leading-6 text-sky-100/75">
                   {error}
                 </p>
                 <p className="mt-3 text-xs leading-5 text-sky-100/60">
-                  You can correct the detected details and use “Check corrected
-                  details.”
+                  {checkedLines.length > 0 ? 'Use CHECK RESULTS MANUALLY to retry, or open the official PCSO results below.' : 'Fill missing details, then use CHECK RESULTS MANUALLY.'}
                 </p>
+                <a href="https://www.pcso.gov.ph/searchlottoresult.aspx" target="_blank" rel="noreferrer" className="mt-4 font-bold text-amber-300 underline">Open official PCSO results</a>
               </div>
             )}
             {result && (
@@ -593,6 +595,7 @@ export default function Home() {
                 <p className="text-xs font-bold uppercase tracking-[.16em] text-[#f7c843]">
                   Official PCSO draw found
                 </p>
+                {result.savedCopy && <p className="mt-2 text-sm text-sky-100/80">Saved official result, verified on {result.verifiedOn}. Live PCSO access was unavailable.</p>}
                 <h2 className="mt-2 text-xl font-black">{result.game}</h2>
                 <p className="mt-1 text-sm text-sky-100/70">
                   {result.date} · Jackpot ₱{result.jackpot}
