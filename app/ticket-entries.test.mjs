@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { extractTicketEntries, validTicketNumbers } from './ticket-entries.ts';
+import { extractTicketEntries, partialTicketEntries, validTicketNumbers } from './ticket-entries.ts';
 
 const ticket = [
   'A: 05 09 11 21 30 36',
@@ -9,6 +9,15 @@ const ticket = [
   'D: 05 15 26 32 34 54',
   'E: 12 13 14 45 50 58',
 ];
+
+test('missing rows and known missing columns remain editable blanks', () => {
+  assert.equal(partialTicketEntries(['A: 02 14 29 32 41 48\nC: 27 47 50 51 53 57\nD: 28 29 31 33 55 __'], 4),
+    'A: 02 14 29 32 41 48\nB: __ __ __ __ __ __\nC: 27 47 50 51 53 57\nD: 28 29 31 33 55 __');
+});
+test('short OCR rows do not shift numbers into assumed columns', () => {
+  assert.equal(partialTicketEntries(['A: 05 11 21 30 36'], 1), 'A: __ __ __ __ __ __');
+  assert.equal(partialTicketEntries(['A: 05 09 11 21 30 30'], 1), 'A: 05 09 11 21 __ __');
+});
 
 test('accepts one through five complete printed rows with LP suffixes', () => {
   for (let count = 1; count <= 5; count++) {

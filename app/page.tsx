@@ -1,7 +1,7 @@
 'use client';
 
 import { ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
-import { extractTicketEntries, validTicketNumbers } from './ticket-entries';
+import { editableTicketEntries, partialTicketEntries, extractTicketEntries, validTicketNumbers } from './ticket-entries';
 import {
   Camera,
   CheckCircle2,
@@ -195,33 +195,7 @@ export default function Home() {
   const [checkedGame, setCheckedGame] = useState('');
   const [expectedEntryCount, setExpectedEntryCount] = useState(0);
   const [error, setError] = useState('');
-  const [manualLabel, setManualLabel] = useState('');
-  const [manualNumbers, setManualNumbers] = useState('');
   const ticketLines = useMemo(() => ticketEntries(lines), [lines]);
-  const individuallyValidEntries = useMemo(
-    () => individuallyValidTicketEntries(lines),
-    [lines],
-  );
-  const requiredLabels = useMemo(
-    () =>
-      Array.from({ length: expectedEntryCount }, (_, index) =>
-        String.fromCharCode('A'.charCodeAt(0) + index),
-      ),
-    [expectedEntryCount],
-  );
-  const missingLabels = useMemo(
-    () =>
-      requiredLabels.filter(
-        (label) =>
-          !individuallyValidEntries.some((entry) =>
-            entry.startsWith(`${label}:`),
-          ),
-      ),
-    [individuallyValidEntries, requiredLabels],
-  );
-  const selectedManualLabel = missingLabels.includes(manualLabel)
-    ? manualLabel
-    : (missingLabels[0] ?? '');
   useEffect(() => {
     const context = (
       document as Document & {
@@ -325,42 +299,11 @@ export default function Home() {
       setLoading(false);
     }
   }
-  function addManualEntry() {
-    const picked = numbers(manualNumbers);
-    const maximum = Number(game.match(/6\/(\d+)/)?.[1] ?? 58);
-    if (
-      !selectedManualLabel ||
-      !validTicketNumbers(picked, maximum)
-    ) {
-      setError(
-        `Enter six different numbers from 1 to ${maximum}, smallest to largest, exactly as printed.`,
-      );
-      return;
-    }
-    const entry = `${selectedManualLabel}: ${picked
-      .map((value) => String(value).padStart(2, '0'))
-      .join(' ')}`;
-    const updated = [
-      ...individuallyValidEntries.filter(
-        (line) => !line.startsWith(`${selectedManualLabel}:`),
-      ),
-      entry,
-    ]
-      .sort((left, right) => left.localeCompare(right))
-      .join('\n');
-    setLines(updated);
-    setManualLabel('');
-    setManualNumbers('');
-    setResult(null);
-    setError('');
-  }
   function clearTicketDetails() {
     setGame('');
     setDate('');
     setLines('');
     setExpectedEntryCount(0);
-    setManualLabel('');
-    setManualNumbers('');
     setResult(null);
     setCheckedLines([]);
     setCheckedGame('');
@@ -390,7 +333,7 @@ export default function Home() {
       );
       if (ticket.detectedGame) setGame(ticket.detectedGame);
       if (ticket.date) setDate(ticket.date);
-      if (ticket.entries) setLines(ticket.entries);
+      setLines(partialTicketEntries([data.spatialText ?? '', data.text], ticket.expectedEntryCount));
       if (ticket.expectedEntryCount)
         setExpectedEntryCount(ticket.expectedEntryCount);
       const entries = ticketEntries(ticket.entries);
@@ -471,7 +414,7 @@ export default function Home() {
         </header>
         <section className="grid gap-5 lg:grid-cols-[1.08fr_.92fr]">
           <div className="overflow-hidden rounded-[2rem] bg-white shadow-2xl shadow-black/20">
-            <div className="grid gap-5 p-5 sm:p-7 md:grid-cols-2">
+            <div className="grid gap-5 p-5 sm:p-7">
               <div>
                 <input
                   ref={input}
@@ -489,7 +432,7 @@ export default function Home() {
                     <img
                       src={image}
                       alt="Selected lotto ticket"
-                      className="h-56 w-full rounded-2xl object-cover"
+                      className="max-h-96 w-full rounded-2xl object-contain"
                     />
                   ) : (
                     <>
@@ -531,7 +474,39 @@ export default function Home() {
                 )}
               </div>
               <div className="space-y-4">
-                <label className="block text-sm font-bold text-slate-700">
+                <fieldset>
+                  <legend className="mb-2 text-sm font-bold text-slate-700">Detected entries (A–E)</legend>
+                  <div className="space-y-2">
+                    {editableTicketEntries(lines, expectedEntryCount).split('\n').map((line, rowIndex) => {
+                      const slots = line.slice(2).trim().split(/\s+/);
+                      return <div key={rowIndex} className="grid grid-cols-[1.2rem_repeat(6,minmax(0,1fr))] items-center gap-1">
+                        <span className="text-sm font-bold">{'ABCDE'[rowIndex]}:</span>
+                        {Array.from({ length: 6 }, (_, column) => <input
+                          key={column}
+                          aria-label={`Entry ${'ABCDE'[rowIndex]}, number ${column + 1}`}
+                          inputMode="numeric"
+                          maxLength={2}
+                          placeholder="__"
+                          value={/^\d{1,2}$/.test(slots[column] ?? '') ? slots[column] : ''}
+                          onChange={event => {
+                            const value = event.target.value.replace(/\D/g, '').slice(0, 2);
+                            const rows = editableTicketEntries(lines, expectedEntryCount).split('\n');
+                            const values = Array.from({ length: 6 }, (_, index) => slots[index] || '__');
+                            values[column] = value || '__';
+                            rows[rowIndex] = `${'ABCDE'[rowIndex]}: ${values.join(' ')}`;
+                            setLines(rows.join('\n'));
+                            setResult(null);
+                            setError('');
+                          }}
+                          className="min-w-0 rounded-lg border border-slate-200 px-1 py-3 text-center font-mono text-base font-bold outline-none focus:border-sky-600"
+                        />)}
+                      </div>;
+                    })}
+                  </div>
+                  <p className="mt-2 text-xs text-slate-500">Fill any blanks exactly as printed, smallest to largest.</p>
+                </fieldset>
+                <div className="grid grid-cols-2 gap-2">
+                <label className="block min-w-0 text-sm font-bold text-slate-700">
                   Detected lotto game
                   <select
                     value={game}
@@ -544,75 +519,20 @@ export default function Home() {
                     ))}
                   </select>
                 </label>
-                <label className="block text-sm font-bold text-slate-700">
+                <label className="block min-w-0 text-sm font-bold text-slate-700">
                   Detected draw date
                   <input
                     value={date}
                     onChange={(e) => setDate(e.target.value)}
                     type="date"
-                    className="mt-1.5 w-full rounded-xl border border-slate-200 px-3 py-3 text-sm outline-none focus:border-sky-600"
+                    className="mt-1.5 min-w-0 max-w-full w-full rounded-xl border border-slate-200 px-1 py-3 text-sm outline-none focus:border-sky-600"
                   />
                 </label>
-                <label className="block text-sm font-bold text-slate-700">
-                  Detected entries (A–E)
-                  <textarea
-                    value={lines}
-                    onChange={(e) => setLines(e.target.value)}
-                    rows={4}
-                    placeholder={'A: 02 14 29 32 41 48\nB: 20 27 32 37 38 42'}
-                    className="mt-1.5 w-full resize-none rounded-xl border border-slate-200 px-3 py-3 font-mono text-sm outline-none focus:border-sky-600"
-                  />
-                </label>
+                </div>
                 <p className="text-xs text-slate-500">
                   If the app did not automatically check for results, use the
                   button to do it manually.
                 </p>
-                {missingLabels.length > 0 && (
-                  <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
-                    <p className="text-sm font-bold text-amber-950">
-                      Add a missing set manually
-                    </p>
-                    <p className="mt-1 text-xs leading-5 text-amber-900/80">
-                      Missing: {missingLabels.join(', ')}. Enter the six numbers
-                      exactly as printed on the ticket.
-                    </p>
-                    <div className="mt-3 grid gap-2 sm:grid-cols-[5rem_1fr]">
-                      <label className="text-xs font-bold text-slate-700">
-                        Set
-                        <select
-                          value={selectedManualLabel}
-                          onChange={(event) =>
-                            setManualLabel(event.target.value)
-                          }
-                          className="mt-1 w-full rounded-lg border border-amber-200 bg-white px-2 py-2 text-sm font-semibold outline-none focus:border-sky-600"
-                        >
-                          {missingLabels.map((label) => (
-                            <option key={label}>{label}</option>
-                          ))}
-                        </select>
-                      </label>
-                      <label className="text-xs font-bold text-slate-700">
-                        Six numbers
-                        <input
-                          value={manualNumbers}
-                          onChange={(event) =>
-                            setManualNumbers(event.target.value)
-                          }
-                          inputMode="numeric"
-                          placeholder="e.g. 01 08 10 18 27 32"
-                          className="mt-1 w-full rounded-lg border border-amber-200 bg-white px-3 py-2 text-sm outline-none focus:border-sky-600"
-                        />
-                      </label>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={addManualEntry}
-                      className="mt-3 rounded-lg bg-amber-200 px-3 py-2 text-xs font-black text-amber-950 transition hover:bg-amber-300"
-                    >
-                      Add {selectedManualLabel} set
-                    </button>
-                  </div>
-                )}
                 <button
                   disabled={
                     !game ||
